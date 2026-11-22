@@ -40,29 +40,30 @@ To start it with Windows, right-click the tray icon and tick
 ### Important: unbind Sonar's own hotkeys
 
 SteelSeries GG has its own Sonar hotkeys. If GG also uses a key this tool
-binds (by default **F17, F18 and F19**, plus Shift/Ctrl/Alt+F17), both react
-to it. In GG, open the Sonar hotkey / shortcut settings and clear any
-shortcut that uses those keys.
+binds, both react to it. In GG, open the Sonar hotkey / shortcut settings
+and clear any shortcut that uses the keys in your config.
 
 If another app owns one of the keys, the tool shows a Windows notification
 naming it when it starts.
 
-## Default controls
+## Controls
 
-The defaults are set up for a Keychron V1 Max whose knob is remapped (in
-Keychron Launcher) to send **F18** (turn left), **F19** (turn right) and
-**F17** (press):
+All keys are set in the config file (see [Bindings](#bindings)). A typical
+setup puts the three main actions on a volume knob or a few spare keys:
 
-| Key | Action |
+| Action | What it does |
 |---|---|
-| F19 (knob right) | Volume up 1% |
-| F18 (knob left) | Volume down 1% |
-| F17 (knob press) | Next channel (master → game → chat → media → aux) |
-| Shift + F17 | Mute / unmute the active channel |
-| Ctrl + F17 | Next output device for all channels (headphones ↔ speakers) |
-| Alt + F17 | Streamer mode: switch between the Monitoring and Streaming mix |
+| `volume_up` / `volume_down` | Change the active channel by one step (1% by default) |
+| `next_channel` | Cycle the active channel (master → game → chat → media → aux) |
+| `toggle_mute` | Mute / unmute the active channel |
+| `next_output_device` | Switch output device, for one channel or all of them (headphones ↔ speakers) |
+| `toggle_mix` | Streamer mode: switch between the Monitoring and Streaming mix |
 
-Holding a key repeats it. Everything is configurable; see below.
+The default config binds these to keys in the **F13–F24** range. Most
+keyboards don't have those keys, so they never clash with anything, and many
+keyboards with a programmable knob or macro keys can be remapped to send
+them. Change the bindings to whatever your hardware sends. Holding a key
+repeats its action.
 
 ## Overlay
 
