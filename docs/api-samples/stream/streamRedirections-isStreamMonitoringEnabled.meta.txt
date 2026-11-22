@@ -1,0 +1,5 @@
+GET http://127.0.0.1:63665/streamRedirections/isStreamMonitoringEnabled
+status: 200
+elapsed_ms: 0
+body_bytes: 5
+body_is_json: true

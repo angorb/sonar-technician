@@ -1,0 +1,21 @@
+sonar-technician 0.1.0 probe
+time (UTC): 20261122T022759Z
+coreProps: C:\ProgramData\SteelSeries\GG\coreProps.json
+ggEncryptedAddress: 127.0.0.1:6327
+sonar: isEnabled=Some(true) isReady=Some(true) isRunning=Some(true) webServerAddress=Some("http://127.0.0.1:63665")
+base URL: http://127.0.0.1:63665
+
+name                                           status      bytes      ms  path
+mode                                           200             8       1  /mode/
+volumeSettings-classic                         200           396       1  /volumeSettings/classic
+volumeSettings-streamer                        200           916       0  /volumeSettings/streamer
+audioDevices                                   200          4716       1  /audioDevices
+classicRedirections                            200           505       0  /classicRedirections
+streamRedirections                             200           756       0  /streamRedirections
+streamRedirections-isStreamMonitoringEnabled   200             5       0  /streamRedirections/isStreamMonitoringEnabled
+configs                                        200       1428964     103  /configs
+configs-selected                               200         16287       6  /configs/selected
+chatMix                                        404             0       0  /chatMix
+v1-chatMix                                     200            78       0  /v1/chatMix
+
+11 endpoints, 1 non-2xx/failed

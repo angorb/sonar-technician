@@ -10,3 +10,10 @@ Each folder holds `<endpoint>.json` (raw body), `<endpoint>.meta.txt`
 (URL, status, timing), `subApps.json`, `coreProps.json` and `summary.txt`.
 Note the GG version (GG → Settings → About) in the commit message when
 adding or refreshing samples.
+
+`configs.json` (all EQ presets, ~1.4 MB) is deliberately not committed; only
+its `.meta.txt` is kept. Presets are out of scope for v1.
+
+## History
+
+- GG 124.0.0 (2026-11-22): first capture, Classic and Streamer.

@@ -1,0 +1,5 @@
+GET http://127.0.0.1:63665/configs/selected
+status: 200
+elapsed_ms: 8
+body_bytes: 16287
+body_is_json: true

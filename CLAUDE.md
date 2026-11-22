@@ -59,27 +59,34 @@ Discovery:
 3. The base URL is `subApps.sonar.metadata.webServerAddress` (plain `http://127.0.0.1:<random port>`). Check `isEnabled`/`isReady`/`isRunning`.
 4. The port changes every GG launch. On a transport error, rediscover and retry once.
 
-Known routes (✅ multiple sources agree, ⚠️ unverified or conflicting, so confirm with `probe` and update this file):
+Known routes. **Confirmed** = seen working on the user's machine (GG version noted); ✅ = multiple community sources agree but not yet exercised here; ⚠️ = unverified or conflicting.
 
 | Purpose | Route | Status |
 |---|---|---|
-| Mode | `GET /mode/` returns `"classic"` or `"stream"` | ✅ |
+| Mode | `GET /mode/` returns `"classic"` or `"stream"` | **Confirmed** GG 124.0.0 |
 | Set mode | `PUT /mode/{classic\|stream}` (no body) | ✅ |
-| Volumes (Classic) | `GET /volumeSettings/classic` | ✅ |
-| Volumes (Streamer) | `GET /volumeSettings/streamer` | ✅ |
+| Volumes (Classic) | `GET /volumeSettings/classic` | **Confirmed** GG 124.0.0 (shape below) |
+| Volumes (Streamer) | `GET /volumeSettings/streamer` | **Confirmed** GG 124.0.0 (shape below) |
 | Set volume (Classic) | `PUT /volumeSettings/classic/{channel}/Volume/{0.00-1.00}` | ✅ (master casing ⚠️: `master` vs `Master`) |
 | Mute (Classic) | `PUT /volumeSettings/classic/{channel}/Mute/{true\|false}` | ✅ |
 | Set volume (Streamer) | `PUT /volumeSettings/streamer/{streaming\|monitoring}/{channel}/volume/{v}` | ⚠️ casing of `volume` |
 | Mute (Streamer) | `PUT /volumeSettings/streamer/{slider}/{channel}/isMuted/{bool}` | ⚠️ |
-| Devices | `GET /audioDevices` (entries include `isVad`; exclude virtual devices) | ✅ route, ⚠️ shape |
-| Device per channel (Classic) | `GET/PUT /classicRedirections/{game\|chat\|media\|aux\|mic}/deviceId/{id}` | ✅ |
-| Streamer redirections | `GET /streamRedirections`; `GET /streamRedirections/isStreamMonitoringEnabled` | ✅ GET, ⚠️ PUT route for changing device |
+| Devices | `GET /audioDevices` | **Confirmed** GG 124.0.0 (shape below) |
+| Device per channel (Classic) | `GET /classicRedirections` (list); `PUT /classicRedirections/{game\|chat\|media\|aux\|mic}/deviceId/{id}` | GET **Confirmed** GG 124.0.0; PUT ✅ |
+| Streamer redirections | `GET /streamRedirections`; `GET /streamRedirections/isStreamMonitoringEnabled` (bare `true`/`false`) | GET **Confirmed** GG 124.0.0; ⚠️ PUT route for changing device |
 | Streamer mix routing | `PUT /streamRedirections/streaming/redirections/{channel}/isEnabled/{bool}` | ⚠️ |
-| ChatMix | `GET/PUT /v1/chatMix?balance={-1..1}` (some report `/chatMix`) | ⚠️ |
-| Presets | `GET /configs`, `GET /configs/selected`, `PUT /configs/{id}/select` | ✅ (out of scope for v1) |
+| ChatMix | `GET /v1/chatMix` → `{"balance":0.44,"state":"enabled","id":"…"}`. `/chatMix` is **404** on GG 124. PUT `?balance=` ⚠️ | GET **Confirmed** GG 124.0.0 |
+| Presets | `GET /configs` (~1.4 MB, 400+ presets), `GET /configs/selected` (list, one per `virtualAudioDevice`), `PUT /configs/{id}/select` | GETs **Confirmed** GG 124.0.0 (out of scope for v1) |
+
+Response shapes (GG 124.0.0; raw samples in `docs/api-samples/{classic,stream}/`):
+- **`/volumeSettings/*`**: `{"masters": {"classic": {volume, muted}, "stream": {"streaming": {volume, muted}, "monitoring": {volume, muted}}}, "devices": {"<game|chatRender|chatCapture|media|aux>": {"classic": {…}, "stream": {…}}}}`. Volumes are floats like `0.71249974`, not 2-decimal. The mute field is `muted` in GET responses. `/classic` fills only the `classic` halves (`stream` is `{}`), and `/streamer` fills only the `stream` halves (`classic` is placeholder `0.0`). Both return 200 in either mode, **but `/volumeSettings/classic` returns placeholder `1.0` for every channel (not master) while in Streamer mode.** Only trust the endpoint that matches the current mode.
+- **`/audioDevices`**: a list of `{friendlyName, id, dataFlow: "render"|"capture", role, channels, defaultRole, fwUpdateRequired, state: "active", isVad}`. For Sonar virtual devices (`isVad: true`), `role` is the volume token (`game`, `chatRender`, `media`, `aux`, `chatCapture`, plus `stream` in Streamer mode); for real devices it's `"none"`. **Use `role` to find a channel's virtual device for the Core Audio path.** Don't match on the friendly name. Streamer mode adds "SteelSeries Sonar - Stream" render and capture devices. Output candidates are `!isVad && dataFlow == "render"`; mic candidates are `!isVad && dataFlow == "capture"`.
+- **`/classicRedirections`**: a list of `{id: "game"|"chat"|"media"|"aux"|"mic", deviceId, isRunning}`. `isRunning` is `false` in Streamer mode.
+- **`/streamRedirections`**: a list of `{streamRedirectionId: "streaming"|"monitoring"|"mic", deviceId, status: [{role: <volume token>, isEnabled}], isRunning}`. There is one device per mix, not per channel. `status` is the per-channel mix routing, and it's empty for `mic`.
+- **Device IDs** look like `{0.0.0.00000000}.{guid}` (render) or `{0.0.1.00000000}.{guid}` (capture). ⚠️ Unverified whether PUT paths need `{`/`}` percent-encoded.
 
 Channel tokens differ by route:
-- Volume routes: `master`, `game`, `chatRender`, `media`, `aux`, `chatCapture`
+- Volume routes and `/audioDevices` `role`, `/streamRedirections` `status.role`: `master`, `game`, `chatRender`, `media`, `aux`, `chatCapture`
 - Redirection routes: `game`, `chat`, `media`, `aux`, `mic`
 
 Keep this mapping in `routes.rs`.

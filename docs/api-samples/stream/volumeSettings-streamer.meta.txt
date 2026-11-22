@@ -1,0 +1,5 @@
+GET http://127.0.0.1:63665/volumeSettings/streamer
+status: 200
+elapsed_ms: 0
+body_bytes: 916
+body_is_json: true
