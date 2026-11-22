@@ -28,6 +28,7 @@ src/
   app.rs           # Windows tray app: hidden window, message loop, worker thread, tray menu, config reload
   chord.rs         # key-chord parsing ("Ctrl+F17" -> MOD_* + VK), pure so it's tested on any OS
   logging.rs       # stderr (CLI) or rotated file in %LOCALAPPDATA% (tray app)
+  overlay_view.rs  # overlay text/layout/placement/pixel painting (pure, tested); platform/overlay.rs draws it
   config.rs        # TOML config: load/validate/defaults/hot-reload
   controller.rs    # pure state machine: mode, active (mix, channel), volumes, devices, coalescing
   controller_tests.rs # controller tests against a fake Sonar (via worker::execute)
@@ -44,7 +45,7 @@ src/
     models.rs      # serde types built from docs/api-samples/*.json
   platform/
     hotkeys.rs     # RegisterHotKey for parsed chords (parsing lives in chord.rs)
-    overlay.rs     # layered, topmost, click-through, no-activate window
+    overlay.rs     # layered, topmost, click-through, no-activate window; GDI text over overlay_view::Canvas
     tray.rs        # Shell_NotifyIconW; icon drawn at runtime (no resources)
     autostart.rs   # HKCU\...\Run
     single_instance.rs

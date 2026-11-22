@@ -30,6 +30,11 @@ mod controller;
     allow(dead_code, reason = "only the Windows tray app uses this")
 )]
 mod logging;
+#[cfg_attr(
+    not(windows),
+    allow(dead_code, reason = "only the Windows tray app uses this")
+)]
+mod overlay_view;
 #[cfg(windows)]
 mod platform;
 mod probe;

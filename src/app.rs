@@ -14,11 +14,14 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::HiDpi::{
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
+};
 use windows::Win32::UI::Shell::{NIN_SELECT, ShellExecuteW};
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
@@ -34,8 +37,10 @@ use crate::actions::{Action, Scope};
 use crate::config::{self, Config, UiState};
 use crate::controller::{Command, Controller, Effect, Event, Snapshot};
 use crate::logging;
+use crate::overlay_view::view;
 use crate::platform::endpoint_volume::EndpointVolume;
 use crate::platform::hotkeys::Hotkeys;
+use crate::platform::overlay::Overlay;
 use crate::platform::tray::{Tray, cursor_pos};
 use crate::platform::{autostart, single_instance};
 use crate::sonar::client::HttpSonar;
@@ -50,6 +55,10 @@ const WM_APP_SECOND_INSTANCE: u32 = WM_APP + 3;
 const NIN_KEYSELECT: u32 = NIN_SELECT | 1;
 const TIMER_TICK: usize = 1;
 const TIMER_CONFIG: usize = 2;
+const TIMER_OVERLAY_HIDE: usize = 3;
+const TIMER_OVERLAY_FADE: usize = 4;
+const FADE: Duration = Duration::from_millis(250);
+const FADE_STEP_MS: u32 = 16;
 const CONFIG_POLL_MS: u32 = 1000;
 
 // Tray menu command ids.
@@ -72,6 +81,8 @@ struct App {
     cmd_tx: Sender<Command>,
     evt_rx: Receiver<Event>,
     tray: Tray,
+    overlay: Option<Overlay>,
+    fade_started: Option<Instant>,
     hotkeys: Hotkeys,
     config: Config,
     config_path: PathBuf,
@@ -127,19 +138,8 @@ impl App {
 
     fn show(&mut self, s: &Snapshot, show_overlay: bool) {
         self.tray.update(&s.tooltip(), s.connected);
-        if show_overlay && self.config.overlay.enabled {
-            // Phase 4: the overlay window. Until then, the tray tooltip and
-            // the debug log show the state.
-            tracing::debug!(
-                "overlay: {:?} {:?}/{:?} vol={:?} muted={:?} dev={:?} msg={:?}",
-                s.mode,
-                s.mix,
-                s.channel,
-                s.volume,
-                s.muted,
-                s.device,
-                s.message
-            );
+        if show_overlay {
+            self.show_overlay(s);
         }
         let active = self.controller.active();
         if active != self.saved_active {
@@ -148,6 +148,64 @@ impl App {
                 UiState::new(active.0, active.1).save(p);
             }
         }
+    }
+
+    fn show_overlay(&mut self, s: &Snapshot) {
+        let cfg = &self.config.overlay;
+        let Some(overlay) = self.overlay.as_mut().filter(|_| cfg.enabled) else {
+            return;
+        };
+        overlay.show(&view(s), cfg);
+        self.fade_started = None;
+        let hold = cfg.timeout.as_millis().clamp(200, 60_000) as u32;
+        // SAFETY: (re)arming / stopping our own timers.
+        unsafe {
+            let _ = KillTimer(Some(self.hwnd), TIMER_OVERLAY_FADE);
+            SetTimer(Some(self.hwnd), TIMER_OVERLAY_HIDE, hold, None);
+        }
+    }
+
+    fn on_overlay_timer(&mut self, id: usize) {
+        let now = Instant::now();
+        if id == TIMER_OVERLAY_HIDE {
+            self.fade_started = Some(now);
+            // SAFETY: swapping our own timers.
+            unsafe {
+                let _ = KillTimer(Some(self.hwnd), TIMER_OVERLAY_HIDE);
+                SetTimer(Some(self.hwnd), TIMER_OVERLAY_FADE, FADE_STEP_MS, None);
+            }
+            return;
+        }
+        let Some(start) = self.fade_started else {
+            return;
+        };
+        let level = 1.0 - now.duration_since(start).as_secs_f32() / FADE.as_secs_f32();
+        if let Some(o) = self.overlay.as_mut() {
+            o.set_fade(level);
+        }
+        if level <= 0.0 {
+            self.fade_started = None;
+            // SAFETY: stopping our own timer.
+            let _ = unsafe { KillTimer(Some(self.hwnd), TIMER_OVERLAY_FADE) };
+        }
+    }
+
+    fn hide_overlay(&mut self) {
+        if let Some(o) = self.overlay.as_mut() {
+            o.hide();
+        }
+        self.fade_started = None;
+        // SAFETY: stopping our own timers.
+        unsafe {
+            let _ = KillTimer(Some(self.hwnd), TIMER_OVERLAY_HIDE);
+            let _ = KillTimer(Some(self.hwnd), TIMER_OVERLAY_FADE);
+        }
+    }
+
+    /// Current state in the overlay (tray left-click, second launch).
+    fn show_status(&mut self, message: Option<String>) {
+        let s = self.controller.snapshot(message);
+        self.show_overlay(&s);
     }
 
     fn schedule_tick(&self) {
@@ -337,6 +395,11 @@ impl App {
             ID_OVERLAY => {
                 // In-memory only; the config file's value wins on next reload.
                 self.config.overlay.enabled = !self.config.overlay.enabled;
+                if self.config.overlay.enabled {
+                    self.show_status(Some("Overlay on".to_owned()));
+                } else {
+                    self.hide_overlay();
+                }
             }
             ID_OPEN_CONFIG => {
                 if !shell_open(&self.config_path) {
@@ -422,21 +485,30 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             TIMER_CONFIG => {
                 with_app(App::check_config);
             }
+            id @ (TIMER_OVERLAY_HIDE | TIMER_OVERLAY_FADE) => {
+                with_app(|a| a.on_overlay_timer(id));
+            }
             _ => {}
         },
         WM_APP_TRAY => {
             let event = (lparam.0 & 0xFFFF) as u32;
-            if event == WM_CONTEXTMENU || event == NIN_SELECT || event == NIN_KEYSELECT {
+            if event == WM_CONTEXTMENU {
                 show_menu(hwnd);
+            } else if event == NIN_SELECT || event == NIN_KEYSELECT {
+                with_app(|a| a.show_status(None));
             }
         }
         WM_APP_SECOND_INSTANCE => {
             with_app(|a| {
-                a.tray.notify(
-                    "Sonar Technician is already running",
-                    "It's in the system tray.",
-                    false,
-                )
+                if a.config.overlay.enabled {
+                    a.show_status(Some("Already running (see the tray)".to_owned()));
+                } else {
+                    a.tray.notify(
+                        "Sonar Technician is already running",
+                        "It's in the system tray.",
+                        false,
+                    );
+                }
             });
         }
         WM_DESTROY => {
@@ -452,7 +524,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
     LRESULT(0)
 }
 
-fn create_window() -> Result<HWND> {
+fn create_window() -> Result<(HWND, HINSTANCE)> {
     // SAFETY: standard window-class registration and creation; the window is
     // never shown (it exists for hotkeys, tray callbacks and timers).
     unsafe {
@@ -470,7 +542,7 @@ fn create_window() -> Result<HWND> {
             RegisterWindowMessageW(w!("TaskbarCreated")),
             Ordering::Relaxed,
         );
-        CreateWindowExW(
+        let hwnd = CreateWindowExW(
             WS_EX_TOOLWINDOW,
             CLASS,
             w!("Sonar Technician"),
@@ -484,7 +556,8 @@ fn create_window() -> Result<HWND> {
             Some(hinstance.into()),
             None,
         )
-        .context("CreateWindowExW")
+        .context("CreateWindowExW")?;
+        Ok((hwnd, hinstance.into()))
     }
 }
 
@@ -550,7 +623,19 @@ pub fn run() -> Result<()> {
         config_path.display()
     );
 
-    let hwnd = create_window()?;
+    // Per-monitor DPI awareness so the overlay is crisp and correctly sized
+    // on every monitor (FR-7.5). Fails harmlessly if already set.
+    // SAFETY: process-wide setting, called before any window exists.
+    let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+
+    let (hwnd, hinstance) = create_window()?;
+    let overlay = match Overlay::new(hinstance) {
+        Ok(o) => Some(o),
+        Err(e) => {
+            tracing::warn!("overlay unavailable: {e:#}");
+            None
+        }
+    };
     let (cmd_tx, cmd_rx) = mpsc::channel();
     let (evt_tx, evt_rx) = mpsc::channel();
     spawn_worker(hwnd, cmd_rx, evt_tx)?;
@@ -566,6 +651,8 @@ pub fn run() -> Result<()> {
         cmd_tx,
         evt_rx,
         tray,
+        overlay,
+        fade_started: None,
         hotkeys: Hotkeys::new(hwnd),
         config,
         config_mtime: mtime(&config_path),
