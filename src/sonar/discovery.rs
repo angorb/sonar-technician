@@ -9,9 +9,15 @@ use std::time::Duration;
 use serde::Deserialize;
 use thiserror::Error;
 use ureq::Agent;
-use ureq::tls::TlsConfig;
+use ureq::tls::{TlsConfig, TlsProvider};
 
 use super::routes;
+
+/// SChannel on Windows, rustls elsewhere (see Cargo.toml).
+#[cfg(windows)]
+const TLS_PROVIDER: TlsProvider = TlsProvider::NativeTls;
+#[cfg(not(windows))]
+const TLS_PROVIDER: TlsProvider = TlsProvider::Rustls;
 
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(3);
 /// Max bytes of a response body quoted in an error message.
@@ -274,7 +280,12 @@ pub struct GgSubApps {
 /// first (`fetch_sub_apps` does).
 fn gg_discovery_agent() -> Agent {
     Agent::config_builder()
-        .tls_config(TlsConfig::builder().disable_verification(true).build())
+        .tls_config(
+            TlsConfig::builder()
+                .provider(TLS_PROVIDER)
+                .disable_verification(true)
+                .build(),
+        )
         .proxy(None)
         .max_redirects(0)
         .http_status_as_error(false)

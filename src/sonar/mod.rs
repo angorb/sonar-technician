@@ -309,6 +309,24 @@ pub fn round_volume(v: f64) -> SonarResult<f64> {
     Ok((v * 100.0).round() / 100.0)
 }
 
+/// Sonar's own virtual device for a channel (used for the Core Audio
+/// endpoint-volume path). Matched by `role`, which holds the volume token.
+/// `None` for master, which has no virtual device.
+pub fn virtual_device_for(devices: &[AudioDevice], channel: Channel) -> Option<&AudioDevice> {
+    if channel == Channel::Master {
+        return None;
+    }
+    let flow = if channel == Channel::Mic {
+        DataFlow::Capture
+    } else {
+        DataFlow::Render
+    };
+    let token = routes::volume_token(channel);
+    devices
+        .iter()
+        .find(|d| d.is_virtual && d.flow == flow && d.role == token)
+}
+
 /// Pick a real (non-virtual, active) device of `flow` by name: an exact
 /// case-insensitive match wins, otherwise a unique substring match.
 pub fn match_device<'a>(
@@ -382,6 +400,24 @@ mod tests {
             is_virtual,
             active: true,
         }
+    }
+
+    #[test]
+    fn virtual_devices_from_sample() {
+        let ds = models::parse_devices(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/docs/api-samples/classic/audioDevices.json"
+        )))
+        .unwrap();
+        let name = |c| virtual_device_for(&ds, c).map(|d| d.name.as_str());
+        assert!(name(Channel::Game).unwrap().contains("Sonar - Gaming"));
+        assert!(name(Channel::Chat).unwrap().contains("Sonar - Chat"));
+        assert!(name(Channel::Media).unwrap().contains("Sonar - Media"));
+        assert!(name(Channel::Aux).unwrap().contains("Sonar - Aux"));
+        let mic = virtual_device_for(&ds, Channel::Mic).unwrap();
+        assert!(mic.name.contains("Sonar - Microphone"));
+        assert_eq!(mic.flow, DataFlow::Capture);
+        assert!(virtual_device_for(&ds, Channel::Master).is_none());
     }
 
     #[test]

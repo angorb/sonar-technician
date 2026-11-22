@@ -1,9 +1,8 @@
 //! Every Sonar/GG route string lives here and nowhere else.
 //!
 //! When GG changes a route, it should be a one-line fix in this file. The
-//! `*_KEYWORD`/`*_CANDIDATES` constants below are what `try-writes` tests;
-//! once a candidate is confirmed, set the matching constant and update the
-//! table in CLAUDE.md.
+//! `*_KEYWORD`/`*_CANDIDATES` constants below are what `try-writes` tests.
+//! The current values are confirmed on GG 124.0.0 (see CLAUDE.md).
 
 use super::{Channel, Mix, Mode, StreamOutput, Target};
 

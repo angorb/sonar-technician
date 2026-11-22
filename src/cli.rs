@@ -10,7 +10,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use crate::sonar::client::{HttpSonar, Method};
 use crate::sonar::{
     AudioDevice, Channel, ChannelState, DataFlow, Mix, Mode, SonarApi, StreamOutput, Target,
-    Volumes, match_device,
+    Volumes, match_device, round_volume, virtual_device_for,
 };
 
 /// Time to let Sonar settle before reading a write back.
@@ -19,9 +19,10 @@ const SETTLE: Duration = Duration::from_millis(200);
 pub const USAGE: &str = "  mode [classic|stream]          show the mode, or switch it (disruptive)
   get                            show volumes and routing for the current mode
   devices [--all]                list output/input devices (--all: include Sonar's virtual ones)
-  set <channel> <0-100> [--mix monitoring|streaming]
-                                 set a volume and read it back
-  mute <channel> [on|off|toggle] [--mix monitoring|streaming]
+  set <channel> <0-100> [--mix monitoring|streaming] [--via rest|endpoint]
+                                 set a volume and read it back. --via endpoint (Classic,
+                                 not master) sets the Windows volume of Sonar's virtual device
+  mute <channel> [on|off|toggle] [--mix monitoring|streaming] [--via rest|endpoint]
   route <target> <device-name-substring>
                                  Classic: target = game|chat|media|aux|mic|all
                                  Streamer: target = monitoring|streaming|mic
@@ -41,8 +42,8 @@ pub fn run(cmd: &str, args: &[String]) -> Result<bool> {
         "mode" => mode(&mut api, &pos)?,
         "get" => get(&mut api)?,
         "devices" => devices(&mut api, flags.all)?,
-        "set" => set(&mut api, &pos, flags.mix)?,
-        "mute" => mute(&mut api, &pos, flags.mix)?,
+        "set" => set(&mut api, &pos, flags.mix, flags.via)?,
+        "mute" => mute(&mut api, &pos, flags.mix, flags.via)?,
         "route" => route(&mut api, &pos)?,
         "raw-get" => raw(&mut api, Method::Get, &pos)?,
         "raw-put" => raw(&mut api, Method::Put, &pos)?,
@@ -52,9 +53,72 @@ pub fn run(cmd: &str, args: &[String]) -> Result<bool> {
     Ok(true)
 }
 
+/// Which write path `set`/`mute` use.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum Via {
+    /// Sonar's REST API (changes audio, not the GG UI).
+    #[default]
+    Rest,
+    /// Windows endpoint volume of Sonar's virtual device (FR-3.7).
+    Endpoint,
+}
+
+/// Find the virtual device for `target` (Classic, non-master only).
+fn endpoint_device(api: &mut HttpSonar, mode: Mode, target: Target) -> Result<String> {
+    if mode != Mode::Classic {
+        bail!("--via endpoint only works in Classic mode");
+    }
+    let devices = api.devices()?;
+    let d = virtual_device_for(&devices, target.channel()).ok_or_else(|| {
+        anyhow!(
+            "{} has no Sonar virtual device (master always uses REST)",
+            target.channel()
+        )
+    })?;
+    println!("via Windows endpoint volume of \"{}\"", d.name);
+    Ok(d.id.clone())
+}
+
+/// Endpoint-volume writes, with the Windows scalar printed before/after.
+#[cfg(windows)]
+mod endpoint {
+    use crate::platform::endpoint_volume::EndpointVolume;
+    use anyhow::Result;
+
+    pub fn set_volume(id: &str, v: f64) -> Result<()> {
+        let ep = EndpointVolume::new()?;
+        let before = ep.volume(id)?;
+        ep.set_volume(id, v as f32)?;
+        println!("  Windows scalar: {before:.4} -> {:.4}", ep.volume(id)?);
+        Ok(())
+    }
+
+    pub fn set_mute(id: &str, muted: bool) -> Result<()> {
+        let ep = EndpointVolume::new()?;
+        let before = ep.muted(id)?;
+        ep.set_mute(id, muted)?;
+        println!("  Windows mute: {before} -> {}", ep.muted(id)?);
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+mod endpoint {
+    use anyhow::{Result, bail};
+
+    pub fn set_volume(_id: &str, _v: f64) -> Result<()> {
+        bail!("--via endpoint is Windows-only")
+    }
+
+    pub fn set_mute(_id: &str, _muted: bool) -> Result<()> {
+        bail!("--via endpoint is Windows-only")
+    }
+}
+
 #[derive(Default)]
 struct Flags {
     mix: Option<Mix>,
+    via: Via,
     all: bool,
     routing: bool,
 }
@@ -71,6 +135,13 @@ fn split_flags(args: &[String]) -> Result<(Vec<String>, Flags)> {
             }
             "--all" => flags.all = true,
             "--routing" => flags.routing = true,
+            "--via" => {
+                flags.via = match it.next().map(String::as_str) {
+                    Some("rest") => Via::Rest,
+                    Some("endpoint") => Via::Endpoint,
+                    _ => bail!("--via needs `rest` or `endpoint`"),
+                }
+            }
             f if f.starts_with("--") => bail!("unknown flag `{f}`"),
             _ => pos.push(a.clone()),
         }
@@ -209,7 +280,7 @@ fn devices(api: &mut HttpSonar, all: bool) -> Result<()> {
     Ok(())
 }
 
-fn set(api: &mut HttpSonar, pos: &[String], mix: Option<Mix>) -> Result<()> {
+fn set(api: &mut HttpSonar, pos: &[String], mix: Option<Mix>, via: Via) -> Result<()> {
     let channel = parse_channel(pos.first())?;
     let pct: f64 = pos
         .get(1)
@@ -222,7 +293,13 @@ fn set(api: &mut HttpSonar, pos: &[String], mix: Option<Mix>) -> Result<()> {
     let mode = api.mode()?;
     let target = resolve_target(mode, channel, mix);
     let before = api.volumes(mode)?.get(target);
-    api.set_volume(target, pct / 100.0)?;
+    match via {
+        Via::Rest => api.set_volume(target, pct / 100.0)?,
+        Via::Endpoint => {
+            let id = endpoint_device(api, mode, target)?;
+            endpoint::set_volume(&id, round_volume(pct / 100.0)?)?;
+        }
+    }
     sleep(SETTLE);
     let after = api.volumes(mode)?.get(target);
     println!("{target}: {} -> {}", fmt_state(before), fmt_state(after));
@@ -238,7 +315,7 @@ fn set(api: &mut HttpSonar, pos: &[String], mix: Option<Mix>) -> Result<()> {
     Ok(())
 }
 
-fn mute(api: &mut HttpSonar, pos: &[String], mix: Option<Mix>) -> Result<()> {
+fn mute(api: &mut HttpSonar, pos: &[String], mix: Option<Mix>, via: Via) -> Result<()> {
     let channel = parse_channel(pos.first())?;
     let mode = api.mode()?;
     let target = resolve_target(mode, channel, mix);
@@ -252,7 +329,13 @@ fn mute(api: &mut HttpSonar, pos: &[String], mix: Option<Mix>) -> Result<()> {
         Some("off") => false,
         Some(o) => bail!("expected on, off or toggle, got `{o}`"),
     };
-    api.set_mute(target, want)?;
+    match via {
+        Via::Rest => api.set_mute(target, want)?,
+        Via::Endpoint => {
+            let id = endpoint_device(api, mode, target)?;
+            endpoint::set_mute(&id, want)?;
+        }
+    }
     sleep(SETTLE);
     let after = api.volumes(mode)?.get(target);
     println!(

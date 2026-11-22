@@ -12,6 +12,7 @@ cargo run -- set game 42        # CLI: set a channel's volume without hotkeys (a
 cargo run -- try-writes         # find which write-route spellings Sonar applies (restores state)
 cargo test                      # unit tests (controller + parsing; no Sonar needed)
 cargo clippy --all-targets -- -D warnings
+cargo clippy --target x86_64-pc-windows-msvc --all-targets -- -D warnings   # from WSL: type-checks Windows-only code (no linking)
 cargo fmt
 ```
 
@@ -112,6 +113,7 @@ Quirks to respect:
 - The overlay can't draw over exclusive-fullscreen games. That's expected, so document it rather than fight it.
 - Config goes in `%APPDATA%\sonar-technician\config.toml` and logs in `%LOCALAPPDATA%\sonar-technician\logs`.
 - Only talk to loopback. Never disable TLS verification globally. Use a dedicated client for the discovery call.
+- TLS backend: SChannel (`native-tls`) on Windows, rustls elsewhere (WSL tests). This keeps Windows builds free of `ring`'s C toolchain requirement, so the Windows target can be checked from WSL.
 
 ## Environment
 - **Dev:** Windows 11 desktop, repo inside WSL2 Debian (`~/projects/sonar-technician`). `cargo test` for the platform-independent modules runs in WSL.
