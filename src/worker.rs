@@ -14,13 +14,25 @@ pub trait EndpointWriter {
 #[cfg(windows)]
 impl EndpointWriter for crate::platform::endpoint_volume::EndpointVolume {
     fn set_volume(&mut self, device_id: &str, volume: f32) -> Result<(), String> {
-        crate::platform::endpoint_volume::EndpointVolume::set_volume(self, device_id, volume)
-            .map_err(|e| e.to_string())
+        use crate::platform::endpoint_volume::EndpointVolume as Ep;
+        let before = Ep::volume(self, device_id).ok();
+        Ep::set_volume(self, device_id, volume).map_err(|e| e.to_string())?;
+        tracing::debug!(
+            "endpoint {device_id}: volume {before:?} -> requested {volume:.2}, now {:?}",
+            Ep::volume(self, device_id).ok()
+        );
+        Ok(())
     }
 
     fn set_mute(&mut self, device_id: &str, muted: bool) -> Result<(), String> {
-        crate::platform::endpoint_volume::EndpointVolume::set_mute(self, device_id, muted)
-            .map_err(|e| e.to_string())
+        use crate::platform::endpoint_volume::EndpointVolume as Ep;
+        let before = Ep::muted(self, device_id).ok();
+        Ep::set_mute(self, device_id, muted).map_err(|e| e.to_string())?;
+        tracing::debug!(
+            "endpoint {device_id}: mute {before:?} -> requested {muted}, now {:?}",
+            Ep::muted(self, device_id).ok()
+        );
+        Ok(())
     }
 }
 

@@ -1037,6 +1037,13 @@ impl Controller {
         let mut resend = Vec::new();
         for (t, read) in v.0 {
             let st = self.targets.entry(t).or_default();
+            if st.local.is_some_and(|l| l != read) {
+                tracing::debug!(
+                    "read {purpose:?} {t}: Sonar {read:?}, local {:?}, busy={}",
+                    st.local,
+                    st.busy()
+                );
+            }
             let newer_local = st.last_change.is_some_and(|c| c >= requested_at);
             if st.busy() || newer_local {
                 continue;

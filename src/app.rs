@@ -230,7 +230,8 @@ impl App {
                 }
                 tracing::info!("config reloaded");
                 if from_menu {
-                    self.tray.notify("Config reloaded", "Settings applied.", false);
+                    self.tray
+                        .notify("Config reloaded", "Settings applied.", false);
                 }
             }
             Err(e) => {
