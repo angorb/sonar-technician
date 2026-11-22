@@ -18,7 +18,7 @@ pub const AUDIO_DEVICES: &str = "/audioDevices";
 pub const CLASSIC_REDIRECTIONS: &str = "/classicRedirections";
 pub const STREAM_REDIRECTIONS: &str = "/streamRedirections";
 
-// --- Write-route keywords (⚠️ until confirmed by `try-writes`) ---------------
+// --- Write-route keywords (confirmed GG 124.0.0 via `try-writes`) -----------
 
 /// Classic volume keyword: `/volumeSettings/classic/{ch}/<this>/{v}`.
 pub const CLASSIC_VOLUME_KEYWORD: &str = "Volume";

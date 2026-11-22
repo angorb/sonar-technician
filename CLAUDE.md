@@ -70,12 +70,12 @@ Known routes. **Confirmed** = seen working on the user's machine (GG version not
 | Set mode | `PUT /mode/{classic\|stream}` (no body) | ✅ |
 | Volumes (Classic) | `GET /volumeSettings/classic` | **Confirmed** GG 124.0.0 (shape below) |
 | Volumes (Streamer) | `GET /volumeSettings/streamer` | **Confirmed** GG 124.0.0 (shape below) |
-| Set volume (Classic) | `PUT /volumeSettings/classic/{channel}/Volume/{0.00-1.00}` | ✅ (master casing ⚠️: `master` vs `Master`) |
-| Mute (Classic) | `PUT /volumeSettings/classic/{channel}/Mute/{true\|false}` | ✅ |
-| Set volume (Streamer) | `PUT /volumeSettings/streamer/{streaming\|monitoring}/{channel}/volume/{v}` | ⚠️ casing of `volume` |
-| Mute (Streamer) | `PUT /volumeSettings/streamer/{slider}/{channel}/isMuted/{bool}` | ⚠️ |
+| Set volume (Classic) | `PUT /volumeSettings/classic/{channel}/Volume/{0.00-1.00}` | **Confirmed** GG 124.0.0. `Volume`/`volume` and `master`/`Master` all work (case-insensitive). Changes audio, **not** the GG UI |
+| Mute (Classic) | `PUT /volumeSettings/classic/{channel}/Mute/{true\|false}` | **Confirmed** GG 124.0.0. `Mute`/`mute` work; `isMuted` is 404. GG UI not updated |
+| Set volume (Streamer) | `PUT /volumeSettings/streamer/{streaming\|monitoring}/{channel}/volume/{v}` | **Confirmed** GG 124.0.0 (monitoring). `volume`/`Volume`, `master`/`Master` all work. GG UI not updated |
+| Mute (Streamer) | `PUT /volumeSettings/streamer/{slider}/{channel}/isMuted/{bool}` | **Confirmed** GG 124.0.0 (monitoring). Only `isMuted`; `Mute`/`mute` are 404. GG UI not updated |
 | Devices | `GET /audioDevices` | **Confirmed** GG 124.0.0 (shape below) |
-| Device per channel (Classic) | `GET /classicRedirections` (list); `PUT /classicRedirections/{game\|chat\|media\|aux\|mic}/deviceId/{id}` | GET **Confirmed** GG 124.0.0; PUT ✅ |
+| Device per channel (Classic) | `GET /classicRedirections` (list); `PUT /classicRedirections/{game\|chat\|media\|aux\|mic}/deviceId/{id}` | **Confirmed** GG 124.0.0. PUT accepts the device ID raw or percent-encoded; the switch shows in the GG UI |
 | Streamer redirections | `GET /streamRedirections`; `GET /streamRedirections/isStreamMonitoringEnabled` (bare `true`/`false`) | GET **Confirmed** GG 124.0.0; ⚠️ PUT route for changing device |
 | Streamer mix routing | `PUT /streamRedirections/streaming/redirections/{channel}/isEnabled/{bool}` | ⚠️ |
 | ChatMix | `GET /v1/chatMix` → `{"balance":0.44,"state":"enabled","id":"…"}`. `/chatMix` is **404** on GG 124. PUT `?balance=` ⚠️ | GET **Confirmed** GG 124.0.0 |
@@ -87,7 +87,7 @@ Response shapes (GG 124.0.0; raw samples in `docs/api-samples/{classic,stream}/`
 - **`/audioDevices`**: a list of `{friendlyName, id, dataFlow: "render"|"capture", role, channels, defaultRole, fwUpdateRequired, state: "active", isVad}`. For Sonar virtual devices (`isVad: true`), `role` is the volume token (`game`, `chatRender`, `media`, `aux`, `chatCapture`, plus `stream` in Streamer mode); for real devices it's `"none"`. **Use `role` to find a channel's virtual device for the Core Audio path.** Don't match on the friendly name. Streamer mode adds "SteelSeries Sonar - Stream" render and capture devices. Output candidates are `!isVad && dataFlow == "render"`; mic candidates are `!isVad && dataFlow == "capture"`.
 - **`/classicRedirections`**: a list of `{id: "game"|"chat"|"media"|"aux"|"mic", deviceId, isRunning}`. `isRunning` is `false` in Streamer mode.
 - **`/streamRedirections`**: a list of `{streamRedirectionId: "streaming"|"monitoring"|"mic", deviceId, status: [{role: <volume token>, isEnabled}], isRunning}`. There is one device per mix, not per channel. `status` is the per-channel mix routing, and it's empty for `mic`.
-- **Device IDs** look like `{0.0.0.00000000}.{guid}` (render) or `{0.0.1.00000000}.{guid}` (capture). ⚠️ Unverified whether PUT paths need `{`/`}` percent-encoded.
+- **Device IDs** look like `{0.0.0.00000000}.{guid}` (render) or `{0.0.1.00000000}.{guid}` (capture). PUT paths accept them raw or percent-encoded (confirmed GG 124.0.0); we encode.
 
 Channel tokens differ by route:
 - Volume routes and `/audioDevices` `role`, `/streamRedirections` `status.role`: `master`, `game`, `chatRender`, `media`, `aux`, `chatCapture`
@@ -100,7 +100,7 @@ Quirks to respect:
 - Sonar **ignores a write equal to its stored value**. To force a re-apply, send ±0.01 and then the real value.
 - A **device switch rebuilds the audio path**, and volume/mute writes during it are dropped. Re-apply after about 400 ms and again after about 1.5 s.
 - Error text `Cannot be called in current mode` means the cached mode is stale. Refresh the mode and retry once.
-- REST channel writes may change the audio without updating the GG UI. Workaround for Classic channels: set the **Windows endpoint volume** of Sonar's virtual device ("SteelSeries Sonar - Gaming / - Chat / - Media / - Aux / - Microphone"). Sonar mirrors it into its fader and pushes it to GG. Note the names don't match the route tokens ("Gaming" ≠ `game`). `master` has no virtual device and always goes through REST. Changing master can make GG rescale how the other channels are displayed.
+- REST volume/mute writes change the audio **without updating the GG UI** (confirmed GG 124.0.0, both modes; device switches *do* show in the UI). Workaround for Classic channels: set the **Windows endpoint volume** of Sonar's virtual device ("SteelSeries Sonar - Gaming / - Chat / - Media / - Aux / - Microphone"). Sonar mirrors it into its fader and pushes it to GG. Note the names don't match the route tokens ("Gaming" ≠ `game`). `master` has no virtual device and always goes through REST. Changing master can make GG rescale how the other channels are displayed.
 - Virtual device IDs change when GG rebuilds its driver. Match devices by ID first and by name as a fallback.
 
 **When a route or shape is confirmed or changed, update this table and `docs/api-samples/` in the same commit.**
