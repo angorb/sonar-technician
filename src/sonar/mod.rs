@@ -313,14 +313,24 @@ pub fn round_volume(v: f64) -> SonarResult<f64> {
 /// endpoint-volume path). Matched by `role`, which holds the volume token.
 /// `None` for master, which has no virtual device.
 pub fn virtual_device_for(devices: &[AudioDevice], channel: Channel) -> Option<&AudioDevice> {
-    if channel == Channel::Master {
-        return None;
-    }
     let flow = if channel == Channel::Mic {
         DataFlow::Capture
     } else {
         DataFlow::Render
     };
+    virtual_device_for_flow(devices, channel, flow)
+}
+
+/// Like [`virtual_device_for`] with an explicit flow. Sonar exposes the
+/// Microphone virtual device as both a render and a capture endpoint.
+pub fn virtual_device_for_flow(
+    devices: &[AudioDevice],
+    channel: Channel,
+    flow: DataFlow,
+) -> Option<&AudioDevice> {
+    if channel == Channel::Master {
+        return None;
+    }
     let token = routes::volume_token(channel);
     devices
         .iter()
