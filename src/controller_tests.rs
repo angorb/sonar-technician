@@ -25,6 +25,8 @@ struct World {
     /// Simulates Sonar dropping a volume during a device switch.
     reset_on_switch: Option<(Target, f64)>,
     fail_endpoint: bool,
+    /// Endpoints returning HTTP 404 ("mode", "volumes", "devices").
+    broken: Vec<&'static str>,
 }
 
 type W = Rc<RefCell<World>>;
@@ -79,6 +81,7 @@ impl World {
             log: Vec::new(),
             reset_on_switch: None,
             fail_endpoint: false,
+            broken: Vec::new(),
         }))
     }
 }
@@ -86,7 +89,23 @@ impl World {
 struct FakeApi(W);
 struct FakeEp(W);
 
+fn not_found(what: &str) -> SonarError {
+    SonarError::Status {
+        method: "GET",
+        url: format!("http://127.0.0.1:1/{what}"),
+        status: 404,
+        excerpt: String::new(),
+    }
+}
+
 impl FakeApi {
+    fn broken(&self, what: &'static str) -> SonarResult<()> {
+        if self.0.borrow().broken.contains(&what) {
+            return Err(not_found(what));
+        }
+        Ok(())
+    }
+
     fn check(&self, target: Option<Target>) -> SonarResult<()> {
         let w = self.0.borrow();
         if !w.up {
@@ -114,6 +133,7 @@ impl FakeApi {
 impl SonarApi for FakeApi {
     fn mode(&mut self) -> SonarResult<Mode> {
         self.check(None)?;
+        self.broken("mode")?;
         Ok(self.0.borrow().mode)
     }
     fn invalidate_mode(&mut self) {}
@@ -124,6 +144,7 @@ impl SonarApi for FakeApi {
     }
     fn volumes(&mut self, mode: Mode) -> SonarResult<Volumes> {
         self.check(None)?;
+        self.broken("volumes")?;
         let w = self.0.borrow();
         Ok(Volumes(
             w.vols
@@ -150,6 +171,7 @@ impl SonarApi for FakeApi {
     }
     fn devices(&mut self) -> SonarResult<Vec<AudioDevice>> {
         self.check(None)?;
+        self.broken("devices")?;
         Ok(self.0.borrow().devices.clone())
     }
     fn routing(&mut self) -> SonarResult<Routing> {
@@ -794,4 +816,107 @@ fn tooltip_text() {
             .tooltip()
             .contains("Streamer · Monitoring Game 50%")
     );
+}
+
+#[test]
+fn broken_volumes_endpoint_only_breaks_volume_actions() {
+    let w = World::new();
+    w.borrow_mut().broken.push("volumes");
+    let mut h = H::new(w);
+    assert!(h.last().connected);
+    h.act(Action::VolumeUp(None));
+    assert_eq!(
+        h.last().message.as_deref(),
+        Some("Can't read volumes from Sonar (see log)")
+    );
+    h.run();
+    // Device switching still works.
+    h.act(Action::SetOutputDevice {
+        pattern: "headphones".into(),
+        scope: Scope::Active,
+    });
+    h.run();
+    assert_eq!(h.log(), [format!("route game {HEADPHONES}")]);
+    // Endpoint fixed (e.g. GG updated again): the next poll recovers.
+    h.w.borrow_mut().broken.clear();
+    h.advance(5000);
+    h.act(Action::VolumeUp(None));
+    assert!(close(h.last().volume.unwrap(), 0.11));
+}
+
+#[test]
+fn broken_devices_endpoint_shows_a_message() {
+    let w = World::new();
+    w.borrow_mut().broken.push("devices");
+    let mut h = H::new(w);
+    h.act(Action::NextOutputDevice(Scope::All));
+    assert_eq!(
+        h.last().message.as_deref(),
+        Some("Can't read devices from Sonar (see log)")
+    );
+    h.run();
+    // Volume still works (falls back to REST: no virtual devices known).
+    h.act(Action::VolumeUp(None));
+    h.run();
+    assert_eq!(h.log(), ["rest game 0.11"]);
+}
+
+#[test]
+fn broken_mode_endpoint_at_startup_keeps_retrying() {
+    let w = World::new();
+    w.borrow_mut().broken.push("mode");
+    let mut h = H::new(w);
+    assert!(h.ui.is_empty() || !h.last().connected);
+    assert!(h.c.next_deadline().is_some(), "a retry is scheduled");
+    h.advance(2000);
+    h.w.borrow_mut().broken.clear();
+    h.advance(4000);
+    assert!(h.last().connected);
+}
+
+#[test]
+fn unplugged_device_drops_out_of_the_cycle() {
+    let cfg = ControllerConfig {
+        device_cycle: vec!["Headphones".into(), "Realtek".into()],
+        ..Default::default()
+    };
+    let mut h = H::with(World::new(), cfg, Channel::Game);
+    h.w.borrow_mut().devices.retain(|d| d.id != HEADPHONES);
+    let fx = h.c.devices_changed();
+    h.absorb(fx);
+    h.run();
+    h.act(Action::NextOutputDevice(Scope::All));
+    h.run();
+    assert!(h.log().is_empty(), "only Realtek left, already active");
+    h.act(Action::SetOutputDevice {
+        pattern: "arctis".into(),
+        scope: Scope::Active,
+    });
+    assert_eq!(
+        h.last().message.as_deref(),
+        Some("No unique device matches \"arctis\"")
+    );
+}
+
+#[test]
+fn resync_after_resume() {
+    let mut h = H::new(World::new());
+    h.w.borrow_mut().vols.get_mut(&GAME).unwrap().volume = 0.66;
+    let fx = h.c.resync(h.now);
+    h.absorb(fx);
+    h.run();
+    assert!(close(h.last().volume.unwrap(), 0.66));
+
+    // Disconnected with a long backoff: resync retries immediately.
+    h.w.borrow_mut().up = false;
+    h.advance(2000);
+    for _ in 0..4 {
+        h.advance(30_000);
+    }
+    assert!(!h.last().connected);
+    h.w.borrow_mut().up = true;
+    let fx = h.c.resync(h.now);
+    h.absorb(fx);
+    h.run();
+    assert!(h.last().connected);
 }

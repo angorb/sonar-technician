@@ -344,6 +344,8 @@ pub struct Controller {
     idle_resync_done: bool,
     verify_at: Vec<Instant>,
     recent_steps: VecDeque<(Instant, i8)>,
+    /// Last error per read kind, so a broken endpoint logs once, not every poll.
+    read_errors: BTreeMap<&'static str, String>,
 }
 
 fn round2(v: f64) -> f64 {
@@ -380,6 +382,7 @@ impl Controller {
             idle_resync_done: true,
             verify_at: Vec::new(),
             recent_steps: VecDeque::new(),
+            read_errors: BTreeMap::new(),
         }
     }
 
@@ -390,6 +393,47 @@ impl Controller {
     /// The active (channel, mix), for persisting across restarts.
     pub fn active(&self) -> (Channel, Mix) {
         (self.channel, self.mix)
+    }
+
+    /// Re-check everything now, e.g. after resume from sleep: reconnect
+    /// immediately if disconnected, otherwise re-read mode, volumes, devices.
+    pub fn resync(&mut self, now: Instant) -> Vec<Effect> {
+        let mut fx = Vec::new();
+        if self.connected {
+            self.read_mode(now, &mut fx);
+            self.read_volumes(now, ReadPurpose::Sync, &mut fx);
+            self.read_devices(&mut fx);
+        } else {
+            self.next_reconnect = None;
+            self.reconnect_backoff = self.cfg.reconnect_min;
+            self.read_mode(now, &mut fx);
+        }
+        fx
+    }
+
+    /// Windows reported a device change (plugged/unplugged): re-read devices.
+    pub fn devices_changed(&mut self) -> Vec<Effect> {
+        let mut fx = Vec::new();
+        if self.connected {
+            self.read_devices(&mut fx);
+        }
+        fx
+    }
+
+    fn read_failed(&mut self, what: &'static str, e: &SonarError) {
+        let msg = e.to_string();
+        if self.read_errors.get(what) == Some(&msg) {
+            tracing::debug!("reading {what} still failing: {msg}");
+        } else {
+            tracing::warn!("reading {what} failed: {msg}");
+            self.read_errors.insert(what, msg);
+        }
+    }
+
+    fn read_ok(&mut self, what: &'static str) {
+        if self.read_errors.remove(what).is_some() {
+            tracing::info!("reading {what} works again");
+        }
     }
 
     /// First commands after launch.
@@ -626,7 +670,12 @@ impl Controller {
             Some(s) => Some((t, s)),
             None => {
                 self.read_volumes(now, ReadPurpose::Sync, fx);
-                self.ui(fx, true, Some("Reading Sonar…".to_owned()));
+                let msg = if self.read_errors.contains_key("volumes") {
+                    "Can't read volumes from Sonar (see log)"
+                } else {
+                    "Reading Sonar…"
+                };
+                self.ui(fx, true, Some(msg.to_owned()));
                 None
             }
         }
@@ -850,7 +899,12 @@ impl Controller {
             return true;
         }
         self.read_devices(fx);
-        self.ui(fx, true, Some("Reading devices…".to_owned()));
+        let msg = if self.read_errors.contains_key("devices") {
+            "Can't read devices from Sonar (see log)"
+        } else {
+            "Reading devices…"
+        };
+        self.ui(fx, true, Some(msg.to_owned()));
         false
     }
 
@@ -934,9 +988,21 @@ impl Controller {
             Event::Mode(r) => {
                 self.mode_in_flight = false;
                 match r {
-                    Ok(m) => self.on_mode(now, m, &mut fx),
+                    Ok(m) => {
+                        self.read_ok("mode");
+                        self.on_mode(now, m, &mut fx);
+                    }
                     Err(e) if is_connection_error(&e) => self.disconnect(now, &e, &mut fx),
-                    Err(e) => tracing::warn!("reading mode failed: {e}"),
+                    Err(e) => {
+                        self.read_failed("mode", &e);
+                        if !self.connected {
+                            // Reachable but /mode/ is broken: keep retrying
+                            // with backoff instead of waiting forever.
+                            self.next_reconnect = Some(now + self.reconnect_backoff);
+                            self.reconnect_backoff =
+                                (self.reconnect_backoff * 2).min(self.cfg.reconnect_max);
+                        }
+                    }
                 }
             }
             Event::Volumes {
@@ -948,17 +1014,19 @@ impl Controller {
                 self.volumes_in_flight = false;
                 match result {
                     Ok(v) if Some(mode) == self.mode => {
+                        self.read_ok("volumes");
                         self.apply_read(requested_at, purpose, v, &mut fx)
                     }
                     Ok(_) => {} // mode changed meanwhile
                     Err(e) if is_connection_error(&e) => self.disconnect(now, &e, &mut fx),
-                    Err(e) => tracing::warn!("reading volumes failed: {e}"),
+                    Err(e) => self.read_failed("volumes", &e),
                 }
             }
             Event::Devices(r) => {
                 self.devices_in_flight = false;
                 match r {
                     Ok((devices, routing)) => {
+                        self.read_ok("devices");
                         self.devices = devices;
                         // Keep optimistic routing for slots with writes pending.
                         let keep: Vec<(DeviceSlot, String)> = self
@@ -976,7 +1044,7 @@ impl Controller {
                         self.ui(&mut fx, false, None);
                     }
                     Err(e) if is_connection_error(&e) => self.disconnect(now, &e, &mut fx),
-                    Err(e) => tracing::warn!("reading devices failed: {e}"),
+                    Err(e) => self.read_failed("devices", &e),
                 }
             }
             Event::VolumeWritten {

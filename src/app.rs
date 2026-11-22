@@ -24,12 +24,13 @@ use windows::Win32::UI::HiDpi::{
 };
 use windows::Win32::UI::Shell::{NIN_SELECT, ShellExecuteW};
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-    DispatchMessageW, GetMessageW, HMENU, KillTimer, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR,
-    MF_STRING, MSG, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW,
+    AppendMenuW, CreatePopupMenu, CreateWindowExW, DBT_DEVNODES_CHANGED, DefWindowProcW,
+    DestroyMenu, DestroyWindow, DispatchMessageW, GetMessageW, HMENU, KillTimer, MF_CHECKED,
+    MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MSG, PBT_APMRESUMEAUTOMATIC,
+    PBT_APMRESUMESUSPEND, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW,
     SW_SHOWNORMAL, SetForegroundWindow, SetTimer, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-    TrackPopupMenu, TranslateMessage, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_HOTKEY, WM_NULL,
-    WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_OVERLAPPED,
+    TrackPopupMenu, TranslateMessage, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_DEVICECHANGE,
+    WM_HOTKEY, WM_NULL, WM_POWERBROADCAST, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_OVERLAPPED,
 };
 use windows::core::{HSTRING, PCWSTR, w};
 
@@ -57,6 +58,9 @@ const TIMER_TICK: usize = 1;
 const TIMER_CONFIG: usize = 2;
 const TIMER_OVERLAY_HIDE: usize = 3;
 const TIMER_OVERLAY_FADE: usize = 4;
+const TIMER_DEVICES: usize = 5;
+/// Device-change notifications come in bursts; re-read once they settle.
+const DEVICE_SETTLE_MS: u32 = 750;
 const FADE: Duration = Duration::from_millis(250);
 const FADE_STEP_MS: u32 = 16;
 const CONFIG_POLL_MS: u32 = 1000;
@@ -241,6 +245,20 @@ impl App {
             let fx = self.controller.handle_event(Instant::now(), ev);
             self.apply(fx);
         }
+    }
+
+    fn on_resume(&mut self) {
+        tracing::info!("resumed from sleep; re-checking Sonar");
+        let fx = self.controller.resync(Instant::now());
+        self.apply(fx);
+    }
+
+    fn on_devices_changed(&mut self) {
+        // SAFETY: one-shot; stop our own timer.
+        let _ = unsafe { KillTimer(Some(self.hwnd), TIMER_DEVICES) };
+        tracing::debug!("audio devices changed; re-reading");
+        let fx = self.controller.devices_changed();
+        self.apply(fx);
     }
 
     fn on_tick(&mut self) {
@@ -485,6 +503,9 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             TIMER_CONFIG => {
                 with_app(App::check_config);
             }
+            TIMER_DEVICES => {
+                with_app(App::on_devices_changed);
+            }
             id @ (TIMER_OVERLAY_HIDE | TIMER_OVERLAY_FADE) => {
                 with_app(|a| a.on_overlay_timer(id));
             }
@@ -510,6 +531,20 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     );
                 }
             });
+        }
+        WM_POWERBROADCAST => {
+            let ev = wparam.0 as u32;
+            if ev == PBT_APMRESUMEAUTOMATIC || ev == PBT_APMRESUMESUSPEND {
+                with_app(App::on_resume);
+            }
+            return LRESULT(1);
+        }
+        WM_DEVICECHANGE => {
+            if wparam.0 as u32 == DBT_DEVNODES_CHANGED {
+                // SAFETY: (re)arming our own debounce timer.
+                unsafe { SetTimer(Some(hwnd), TIMER_DEVICES, DEVICE_SETTLE_MS, None) };
+            }
+            return LRESULT(1);
         }
         WM_DESTROY => {
             // SAFETY: ends this thread's message loop.
@@ -617,6 +652,12 @@ pub fn run() -> Result<()> {
     ) {
         eprintln!("{e}");
     }
+    // Release builds have no console: make panics land in the log file.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        tracing::error!("panic: {info}");
+        default_hook(info);
+    }));
     tracing::info!(
         "sonar-technician {} starting; config {}",
         env!("CARGO_PKG_VERSION"),
