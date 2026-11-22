@@ -8,7 +8,8 @@ Windows tray utility in Rust that drives SteelSeries GG Sonar's **undocumented l
 cargo build                     # debug build (console window visible, handy for logs)
 cargo build --release           # release build (no console; windows_subsystem = "windows")
 cargo run -- probe              # discover Sonar and dump every GET endpoint to ./probe-<UTC timestamp>/
-cargo run -- set game 42        # CLI: set a channel's volume without hotkeys
+cargo run -- set game 42        # CLI: set a channel's volume without hotkeys (also: get, devices, mute, route, mode)
+cargo run -- try-writes         # find which write-route spellings Sonar applies (restores state)
 cargo test                      # unit tests (controller + parsing; no Sonar needed)
 cargo clippy --all-targets -- -D warnings
 cargo fmt
@@ -32,6 +33,8 @@ src/
     client.rs      # HTTP impl of SonarApi, retry-once-after-rediscovery
     routes.rs      # EVERY route string lives here, nowhere else
   probe.rs         # `probe` subcommand
+  cli.rs           # mode/get/devices/set/mute/route/raw-get/raw-put
+  try_writes.rs    # `try-writes`: tests candidate write-route spellings against live Sonar
     models.rs      # serde types built from docs/api-samples/*.json
   platform/
     hotkeys.rs     # RegisterHotKey, chord parsing (F13–F24 + modifiers)

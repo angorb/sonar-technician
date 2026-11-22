@@ -3,25 +3,32 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod actions;
+mod cli;
 mod config;
 mod controller;
 #[cfg(windows)]
 mod platform;
 mod probe;
 mod sonar;
+mod try_writes;
 
 use anyhow::{Result, bail};
 use tracing_subscriber::EnvFilter;
 
-const USAGE: &str = "\
+const USAGE_TEMPLATE: &str = "\
 usage: sonar-technician [command]
 
 commands:
-  (none)      run the tray app (not implemented yet)
-  probe       discover Sonar and dump every GET endpoint to ./probe-<timestamp>/
-  help        show this message
+  (none)                         run the tray app (not implemented yet)
+  probe                          discover Sonar and dump every GET endpoint to ./probe-<timestamp>/
+  help                           show this message
+{CLI}
 
 Set RUST_LOG=debug for request-level logging.";
+
+fn usage() -> String {
+    USAGE_TEMPLATE.replace("{CLI}", cli::USAGE)
+}
 
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -33,15 +40,24 @@ fn main() -> Result<()> {
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
-        None => bail!("the tray app isn't implemented yet (Phase 3). Try `probe`.\n\n{USAGE}"),
+        None => bail!(
+            "the tray app isn't implemented yet (Phase 3). Try `probe`.\n\n{}",
+            usage()
+        ),
         Some("probe") => {
             probe::run(&std::env::current_dir()?)?;
             Ok(())
         }
         Some("help" | "-h" | "--help") => {
-            println!("{USAGE}");
+            println!("{}", usage());
             Ok(())
         }
-        Some(other) => bail!("unknown command `{other}`\n\n{USAGE}"),
+        Some(cmd) => {
+            if cli::run(cmd, &args[1..])? {
+                Ok(())
+            } else {
+                bail!("unknown command `{cmd}`\n\n{}", usage())
+            }
+        }
     }
 }

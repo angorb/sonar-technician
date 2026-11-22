@@ -348,31 +348,14 @@ impl SonarSubApp {
     }
 }
 
-/// Result of a full discovery.
-#[expect(dead_code, reason = "used by the Sonar client in Phase 1")]
-#[derive(Debug, Clone)]
-pub struct Discovery {
-    pub core_props: CorePropsFile,
-    pub sub_apps: GgSubApps,
-    /// Sonar's base URL, e.g. `http://127.0.0.1:50453` (no trailing slash).
-    pub base_url: String,
-}
-
-/// Full discovery: coreProps.json -> /subApps -> validated base URL.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "used by the Sonar client in Phase 1")
-)]
-pub fn discover() -> Result<Discovery, DiscoveryError> {
+/// Full discovery: coreProps.json -> /subApps -> validated Sonar base URL
+/// (e.g. `http://127.0.0.1:50453`, no trailing slash).
+pub fn discover() -> Result<String, DiscoveryError> {
     let core_props = read_core_props()?;
     let sub_apps = fetch_sub_apps(&core_props.gg_address)?;
     let base_url = sub_apps.sonar.base_url()?;
     tracing::info!(%base_url, "discovered Sonar");
-    Ok(Discovery {
-        core_props,
-        sub_apps,
-        base_url,
-    })
+    Ok(base_url)
 }
 
 #[cfg(test)]
@@ -523,7 +506,6 @@ mod tests {
     #[test]
     #[ignore]
     fn live_discovery() {
-        let d = discover().unwrap();
-        println!("{}", d.base_url);
+        println!("{}", discover().unwrap());
     }
 }
