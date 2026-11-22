@@ -63,6 +63,8 @@ Discovery:
 3. The base URL is `subApps.sonar.metadata.webServerAddress` (plain `http://127.0.0.1:<random port>`). Check `isEnabled`/`isReady`/`isRunning`.
 4. The port changes every GG launch. On a transport error, rediscover and retry once.
 
+The Sonar UI also sends `POST /analytics/track` (telemetry). Never call it.
+
 Known routes. **Confirmed** = seen working on the user's machine (GG version noted); ✅ = multiple community sources agree but not yet exercised here; ⚠️ = unverified or conflicting.
 
 | Purpose | Route | Status |
@@ -77,7 +79,8 @@ Known routes. **Confirmed** = seen working on the user's machine (GG version not
 | Mute (Streamer) | `PUT /volumeSettings/streamer/{slider}/{channel}/isMuted/{bool}` | **Confirmed** GG 124.0.0 (monitoring). Only `isMuted`; `Mute`/`mute` are 404. GG UI not updated |
 | Devices | `GET /audioDevices` | **Confirmed** GG 124.0.0 (shape below) |
 | Device per channel (Classic) | `GET /classicRedirections` (list); `PUT /classicRedirections/{game\|chat\|media\|aux\|mic}/deviceId/{id}` | **Confirmed** GG 124.0.0. PUT accepts the device ID raw or percent-encoded; the switch shows in the GG UI |
-| Streamer redirections | `GET /streamRedirections`; `GET /streamRedirections/isStreamMonitoringEnabled` (bare `true`/`false`) | GET **Confirmed** GG 124.0.0; ⚠️ PUT route for changing device |
+| Streamer redirections | `GET /streamRedirections`; `GET /streamRedirections/isStreamMonitoringEnabled` (bare `true`/`false`); `GET /streamRedirections/isStreamMonitoringLocked` (seen in UI traffic, shape ⚠️) | GETs **Confirmed** GG 124.0.0 |
+| Device per mix (Streamer) | `PUT /streamRedirections/{monitoring\|streaming\|mic}/deviceId/{id}` (no body, ID percent-encoded); returns the updated redirection entry | **Confirmed** from Sonar UI traffic capture, GG 124.0.0 (`docs/api-samples/stream/capture-streamRedirections-put.txt`) |
 | Streamer mix routing | `PUT /streamRedirections/streaming/redirections/{channel}/isEnabled/{bool}` | ⚠️ |
 | ChatMix | `GET /v1/chatMix` → `{"balance":0.44,"state":"enabled","id":"…"}`. `/chatMix` is **404** on GG 124. PUT `?balance=` ⚠️ | GET **Confirmed** GG 124.0.0 |
 | Presets | `GET /configs` (~1.4 MB, 400+ presets), `GET /configs/selected` (list, one per `virtualAudioDevice`), `PUT /configs/{id}/select` | GETs **Confirmed** GG 124.0.0 (out of scope for v1) |

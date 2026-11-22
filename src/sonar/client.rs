@@ -232,10 +232,7 @@ impl SonarApi for HttpSonar {
     }
 
     fn set_stream_device(&mut self, output: StreamOutput, device_id: &str) -> SonarResult<()> {
-        let path = routes::set_stream_device(output, device_id).ok_or(SonarError::Unsupported(
-            "switching devices in Streamer mode isn't supported yet (route unknown, see Q4)",
-        ))?;
-        self.request(Method::Put, &path)?;
+        self.request(Method::Put, &routes::set_stream_device(output, device_id))?;
         tracing::info!("routed {} to {device_id}", output.name());
         Ok(())
     }
@@ -416,12 +413,18 @@ mod tests {
     }
 
     #[test]
-    fn stream_device_switch_is_unsupported_for_now() {
-        let (mut c, calls) = client_for(vec![dead_base()]);
-        assert!(matches!(
-            c.set_stream_device(StreamOutput::Mic, "x"),
-            Err(SonarError::Unsupported(_))
-        ));
-        assert_eq!(*calls.lock().unwrap(), 0);
+    fn stream_device_switch_uses_captured_route() {
+        let (live, log) = fake_sonar(vec![(
+            "PUT /streamRedirections/streaming/deviceId/%7Bid%7D",
+            200,
+            "{\"streamRedirectionId\":\"streaming\"}",
+        )]);
+        let (mut c, _) = client_for(vec![live]);
+        c.set_stream_device(StreamOutput::Mix(Mix::Streaming), "{id}")
+            .unwrap();
+        assert_eq!(
+            log.lock().unwrap().as_slice(),
+            ["PUT /streamRedirections/streaming/deviceId/%7Bid%7D"]
+        );
     }
 }

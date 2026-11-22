@@ -14,6 +14,9 @@ adding or refreshing samples.
 `configs.json` (all EQ presets, ~1.4 MB) is deliberately not committed; only
 its `.meta.txt` is kept. Presets are out of scope for v1.
 
+`stream/capture-streamRedirections-put.txt` is a trimmed Wireshark capture of
+the Sonar UI switching devices in Streamer mode (how Q4 was resolved).
+
 ## History
 
 - GG 124.0.0 (2026-11-22): first capture, Classic and Streamer.

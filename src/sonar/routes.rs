@@ -194,9 +194,15 @@ pub fn set_classic_device(channel: Channel, device_id: &str) -> Option<String> {
     set_classic_device_with(channel, device_id, ENCODE_DEVICE_ID)
 }
 
-/// Streamer device switch. Unknown until Q4 is resolved (traffic capture).
-pub fn set_stream_device(_output: StreamOutput, _device_id: &str) -> Option<String> {
-    None
+/// Streamer device switch for a mix or the mic. Captured from the GG UI
+/// (GG 124.0.0): `PUT /streamRedirections/{monitoring|streaming|mic}/deviceId/{id}`,
+/// no body, ID percent-encoded; the response is the updated redirection entry.
+pub fn set_stream_device(output: StreamOutput, device_id: &str) -> String {
+    format!(
+        "/streamRedirections/{}/deviceId/{}",
+        output.name(),
+        device_id_segment(device_id, ENCODE_DEVICE_ID)
+    )
 }
 
 // --- Probe -----------------------------------------------------------------
@@ -239,6 +245,10 @@ pub const PROBE_ENDPOINTS: &[ProbeEndpoint] = &[
     ProbeEndpoint {
         name: "streamRedirections-isStreamMonitoringEnabled",
         path: "/streamRedirections/isStreamMonitoringEnabled",
+    },
+    ProbeEndpoint {
+        name: "streamRedirections-isStreamMonitoringLocked",
+        path: "/streamRedirections/isStreamMonitoringLocked",
     },
     ProbeEndpoint {
         name: "configs",
@@ -311,5 +321,13 @@ mod tests {
             format!("/classicRedirections/mic/deviceId/{id}")
         );
         assert!(set_classic_device(Channel::Master, id).is_none());
+        assert_eq!(
+            set_stream_device(StreamOutput::Mix(Mix::Monitoring), id),
+            "/streamRedirections/monitoring/deviceId/%7B0.0.0.00000000%7D.%7B1ea774ba-44fc-437f-8575-6b0b4f87b4c4%7D"
+        );
+        assert_eq!(
+            set_stream_device(StreamOutput::Mic, "{0.0.1.00000000}.{x}"),
+            "/streamRedirections/mic/deviceId/%7B0.0.1.00000000%7D.%7Bx%7D"
+        );
     }
 }
