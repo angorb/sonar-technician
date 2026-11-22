@@ -3,36 +3,51 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 #[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "wired into the tray app in Phase 3")
+    not(windows),
+    allow(dead_code, reason = "only the Windows tray app uses this")
 )]
 mod actions;
+#[cfg(windows)]
+mod app;
+#[cfg_attr(
+    not(windows),
+    allow(dead_code, reason = "only the Windows tray app uses this")
+)]
+mod chord;
 mod cli;
+#[cfg_attr(
+    not(windows),
+    allow(dead_code, reason = "only the Windows tray app uses this")
+)]
 mod config;
 #[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "wired into the tray app in Phase 3")
+    not(windows),
+    allow(dead_code, reason = "only the Windows tray app uses this")
 )]
 mod controller;
+#[cfg_attr(
+    not(windows),
+    allow(dead_code, reason = "only the Windows tray app uses this")
+)]
+mod logging;
 #[cfg(windows)]
 mod platform;
 mod probe;
 mod sonar;
 mod try_writes;
 #[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "wired into the tray app in Phase 3")
+    not(windows),
+    allow(dead_code, reason = "only the Windows tray app uses this")
 )]
 mod worker;
 
 use anyhow::{Result, bail};
-use tracing_subscriber::EnvFilter;
 
 const USAGE_TEMPLATE: &str = "\
 usage: sonar-technician [command]
 
 commands:
-  (none)                         run the tray app (not implemented yet)
+  (none)                         run the tray app
   probe                          discover Sonar and dump every GET endpoint to ./probe-<timestamp>/
   help                           show this message
 {CLI}
@@ -44,28 +59,35 @@ fn usage() -> String {
 }
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .with_writer(std::io::stderr)
-        .init();
-
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.first().map(String::as_str) {
-        None => bail!(
-            "the tray app isn't implemented yet (Phase 3). Try `probe`.\n\n{}",
-            usage()
-        ),
-        Some("probe") => {
+
+    if args.is_empty() {
+        #[cfg(windows)]
+        return app::run();
+        #[cfg(not(windows))]
+        bail!("the tray app only runs on Windows.\n\n{}", usage());
+    }
+
+    // Release builds have no console of their own; borrow the parent's so CLI
+    // output shows up in the terminal that started us.
+    #[cfg(all(windows, not(debug_assertions)))]
+    {
+        use windows::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole};
+        // SAFETY: plain Win32 call; failure just means no console output.
+        let _ = unsafe { AttachConsole(ATTACH_PARENT_PROCESS) };
+    }
+
+    logging::init_console("info");
+    match args[0].as_str() {
+        "probe" => {
             probe::run(&std::env::current_dir()?)?;
             Ok(())
         }
-        Some("help" | "-h" | "--help") => {
+        "help" | "-h" | "--help" => {
             println!("{}", usage());
             Ok(())
         }
-        Some(cmd) => {
+        cmd => {
             if cli::run(cmd, &args[1..])? {
                 Ok(())
             } else {

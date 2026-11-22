@@ -735,3 +735,63 @@ fn config_reload_and_active_target() {
     h.act(Action::VolumeUp(None));
     assert!(close(h.last().volume.unwrap(), 0.27));
 }
+
+#[test]
+fn device_choices_for_tray_menu() {
+    let mut h = H::new(World::new());
+    let choices = h.c.device_choices();
+    assert!(
+        choices
+            .iter()
+            .any(|(n, cur)| n == "Speakers (Realtek(R) Audio)" && *cur)
+    );
+    assert!(
+        choices
+            .iter()
+            .all(|(n, _)| !n.starts_with("SteelSeries Sonar"))
+    );
+    // Selecting by exact name (what the tray does) routes the active channel.
+    h.act(Action::SetOutputDevice {
+        pattern: "Speakers (Steam Streaming Speakers)".into(),
+        scope: Scope::Active,
+    });
+    h.run();
+    assert!(
+        h.c.device_choices()
+            .iter()
+            .any(|(n, cur)| n == "Speakers (Steam Streaming Speakers)" && *cur)
+    );
+    // Mic lists capture devices.
+    h.act(Action::SelectChannel(Channel::Mic));
+    assert!(
+        h.c.device_choices()
+            .iter()
+            .any(|(n, _)| n == "Headset Microphone (SteelSeries Arctis Nova 5)")
+    );
+}
+
+#[test]
+fn tooltip_text() {
+    let mut h = H::new(World::new());
+    assert_eq!(
+        h.last().tooltip(),
+        "Sonar Technician\nClassic · Game 10%\n→ Speakers (Realtek(R) Audio)"
+    );
+    h.act(Action::ToggleMute);
+    assert!(h.last().tooltip().contains("Game 10% (muted)"));
+    h.w.borrow_mut().up = false;
+    h.run();
+    h.w.borrow_mut().fail_endpoint = true;
+    h.act(Action::VolumeUp(None));
+    h.run();
+    assert_eq!(h.last().tooltip(), "Sonar Technician\nSonar unavailable");
+
+    let w = World::new();
+    w.borrow_mut().mode = Mode::Stream;
+    let h = H::new(w);
+    assert!(
+        h.last()
+            .tooltip()
+            .contains("Streamer · Monitoring Game 50%")
+    );
+}

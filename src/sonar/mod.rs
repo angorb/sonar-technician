@@ -80,6 +80,24 @@ impl Channel {
     }
 }
 
+impl Channel {
+    /// Display name for the overlay/tray.
+    #[cfg_attr(
+        not(windows),
+        allow(dead_code, reason = "only the Windows tray app uses this")
+    )]
+    pub fn label(self) -> &'static str {
+        match self {
+            Channel::Master => "Master",
+            Channel::Game => "Game",
+            Channel::Chat => "Chat",
+            Channel::Media => "Media",
+            Channel::Aux => "Aux",
+            Channel::Mic => "Mic",
+        }
+    }
+}
+
 impl fmt::Display for Channel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.name())
@@ -112,6 +130,19 @@ impl Mix {
         match self {
             Mix::Monitoring => "monitoring",
             Mix::Streaming => "streaming",
+        }
+    }
+}
+
+impl Mix {
+    #[cfg_attr(
+        not(windows),
+        allow(dead_code, reason = "only the Windows tray app uses this")
+    )]
+    pub fn label(self) -> &'static str {
+        match self {
+            Mix::Monitoring => "Monitoring",
+            Mix::Streaming => "Streaming",
         }
     }
 }
@@ -282,10 +313,6 @@ pub trait SonarApi {
     /// Current mode (may be cached for a short time).
     fn mode(&mut self) -> SonarResult<Mode>;
     /// Drop any cached mode so the next `mode()` asks Sonar.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "used by the controller in Phase 2")
-    )]
     fn invalidate_mode(&mut self);
     fn set_mode(&mut self, mode: Mode) -> SonarResult<()>;
 

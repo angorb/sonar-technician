@@ -25,6 +25,9 @@ cargo fmt
 ```
 src/
   main.rs          # arg parsing: tray app (default) | probe | set | ...
+  app.rs           # Windows tray app: hidden window, message loop, worker thread, tray menu, config reload
+  chord.rs         # key-chord parsing ("Ctrl+F17" -> MOD_* + VK), pure so it's tested on any OS
+  logging.rs       # stderr (CLI) or rotated file in %LOCALAPPDATA% (tray app)
   config.rs        # TOML config: load/validate/defaults/hot-reload
   controller.rs    # pure state machine: mode, active (mix, channel), volumes, devices, coalescing
   controller_tests.rs # controller tests against a fake Sonar (via worker::execute)
@@ -40,9 +43,9 @@ src/
   try_writes.rs    # `try-writes`: tests candidate write-route spellings against live Sonar
     models.rs      # serde types built from docs/api-samples/*.json
   platform/
-    hotkeys.rs     # RegisterHotKey, chord parsing (F13–F24 + modifiers)
+    hotkeys.rs     # RegisterHotKey for parsed chords (parsing lives in chord.rs)
     overlay.rs     # layered, topmost, click-through, no-activate window
-    tray.rs
+    tray.rs        # Shell_NotifyIconW; icon drawn at runtime (no resources)
     autostart.rs   # HKCU\...\Run
     single_instance.rs
     endpoint_volume.rs  # optional Core Audio writer for Sonar virtual devices
@@ -116,7 +119,8 @@ Quirks to respect:
 - Use `RegisterHotKey` for global hotkeys (F13–F24 are VK_F13..VK_F24, 0x7C–0x87). Don't install a low-level hook unless testing proves `RegisterHotKey` misses events.
 - Overlay window styles: `WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`. Show it with `SW_SHOWNOACTIVATE`. It must never take focus. Make it per-monitor DPI aware (manifest or `SetProcessDpiAwarenessContext`).
 - The overlay can't draw over exclusive-fullscreen games. That's expected, so document it rather than fight it.
-- Config goes in `%APPDATA%\sonar-technician\config.toml` and logs in `%LOCALAPPDATA%\sonar-technician\logs`.
+- Config goes in `%APPDATA%\sonar-technician\config.toml` (hot-reloaded by polling its mtime every second) and logs in `%LOCALAPPDATA%\sonar-technician\logs`. The active channel/mix is saved to `%LOCALAPPDATA%\sonar-technician\state.json`.
+- The tray uses `Shell_NotifyIconW` directly (no `tray-icon` crate): we already own a Win32 message loop.
 - Only talk to loopback. Never disable TLS verification globally. Use a dedicated client for the discovery call.
 - TLS backend: SChannel (`native-tls`) on Windows, rustls elsewhere (WSL tests). This keeps Windows builds free of `ring`'s C toolchain requirement, so the Windows target can be checked from WSL.
 

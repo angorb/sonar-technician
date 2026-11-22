@@ -219,6 +219,38 @@ pub struct Snapshot {
     pub message: Option<String>,
 }
 
+impl Snapshot {
+    /// Tray tooltip text (Windows truncates at 127 chars).
+    pub fn tooltip(&self) -> String {
+        let mut t = String::from("Sonar Technician");
+        if !self.connected {
+            t.push_str("\nSonar unavailable");
+            return t;
+        }
+        if let Some(mode) = self.mode {
+            t.push('\n');
+            t.push_str(mode.label());
+            t.push_str(" · ");
+            if mode == Mode::Stream {
+                t.push_str(self.mix.label());
+                t.push(' ');
+            }
+            t.push_str(self.channel.label());
+            if let Some(v) = self.volume {
+                t.push_str(&format!(" {:.0}%", v * 100.0));
+            }
+            if self.muted == Some(true) {
+                t.push_str(" (muted)");
+            }
+        }
+        if let Some(d) = &self.device {
+            t.push_str("\n→ ");
+            t.push_str(d);
+        }
+        t
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
     Sonar(Command),
@@ -776,6 +808,21 @@ impl Controller {
             .iter()
             .find(|d| d.id == id)
             .map(|d| d.name.clone())
+    }
+
+    /// Devices the active channel/mix can be routed to (for the tray menu):
+    /// every real active device of the right direction, with the current one
+    /// flagged. Empty until devices have been read.
+    pub fn device_choices(&self) -> Vec<(String, bool)> {
+        let Some((slots, flow)) = self.device_slots_for(Scope::Active) else {
+            return Vec::new();
+        };
+        let current = slots.first().and_then(|s| self.routed_device(*s));
+        self.devices
+            .iter()
+            .filter(|d| !d.is_virtual && d.active && d.flow == flow)
+            .map(|d| (d.name.clone(), Some(d.id.as_str()) == current))
+            .collect()
     }
 
     /// Devices to cycle through, in order.
