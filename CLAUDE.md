@@ -27,6 +27,8 @@ src/
   main.rs          # arg parsing: tray app (default) | probe | set | ...
   config.rs        # TOML config: load/validate/defaults/hot-reload
   controller.rs    # pure state machine: mode, active (mix, channel), volumes, devices, coalescing
+  controller_tests.rs # controller tests against a fake Sonar (via worker::execute)
+  worker.rs        # executes controller Commands on SonarApi + EndpointWriter, returns Events
   actions.rs       # Action enum (volume_up, next_channel, next_output_device, ...)
   sonar/
     mod.rs         # SonarApi trait + types

@@ -135,7 +135,10 @@ pub enum Target {
 }
 
 impl Target {
-    #[expect(dead_code, reason = "used by the controller in Phase 2")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "used by the tray app in Phase 3")
+    )]
     pub fn mode(self) -> Mode {
         match self {
             Target::Classic(_) => Mode::Classic,

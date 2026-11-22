@@ -2,15 +2,28 @@
 // console so logs and CLI output are visible.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "wired into the tray app in Phase 3")
+)]
 mod actions;
 mod cli;
 mod config;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "wired into the tray app in Phase 3")
+)]
 mod controller;
 #[cfg(windows)]
 mod platform;
 mod probe;
 mod sonar;
 mod try_writes;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "wired into the tray app in Phase 3")
+)]
+mod worker;
 
 use anyhow::{Result, bail};
 use tracing_subscriber::EnvFilter;
