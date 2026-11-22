@@ -42,8 +42,9 @@ step = 0.01
 # Master and Streamer mode always use Sonar's API.
 classic_write = "windows"
 
-# Bigger steps when the knob is spun quickly: if `threshold` steps in the same
-# direction arrive within `window_ms`, each further step is multiplied.
+# Bigger steps when volume keys arrive quickly (e.g. a knob spun fast):
+# if `threshold` steps in the same direction arrive within `window_ms`,
+# each further step is multiplied.
 [volume.acceleration]
 enabled = false
 window_ms = 80
@@ -83,7 +84,11 @@ volume_poll_ms = 5000
 # Re-read volumes this long after the last key press.
 idle_resync_ms = 3000
 
-# Key bindings. Keys: F1-F24, A-Z, 0-9, NumPad0-9, Space, Enter, Tab, Esc,
+# Key bindings. The defaults use F13-F24, which most keyboards don't have
+# (so they don't clash with anything) but programmable knobs and macro keys
+# can usually be set to send. Change them to whatever your hardware sends.
+#
+# Keys: F1-F24, A-Z, 0-9, NumPad0-9, Space, Enter, Tab, Esc,
 # Insert, Delete, Home, End, PageUp, PageDown, Up, Down, Left, Right, Pause,
 # ScrollLock, PrintScreen, VolumeUp, VolumeDown, VolumeMute, MediaNext,
 # MediaPrev, MediaStop, MediaPlayPause; with Ctrl/Alt/Shift/Win, e.g. "Ctrl+F17".
@@ -103,17 +108,17 @@ idle_resync_ms = 3000
 # scope = "all": in Classic mode, game/chat/media/aux together; in Streamer
 # mode, the monitoring mix (what you hear).
 
-# Keychron knob: turn right
+# Volume up (e.g. a knob turned right)
 [[bindings]]
 keys = "F19"
 action = "volume_up"
 
-# Knob: turn left
+# Volume down (e.g. a knob turned left)
 [[bindings]]
 keys = "F18"
 action = "volume_down"
 
-# Knob: press
+# Next channel (e.g. a knob press)
 [[bindings]]
 keys = "F17"
 action = "next_channel"

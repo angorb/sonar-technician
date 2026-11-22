@@ -29,6 +29,11 @@ mod controller;
     not(windows),
     allow(dead_code, reason = "only the Windows tray app uses this")
 )]
+mod icon;
+#[cfg_attr(
+    not(windows),
+    allow(dead_code, reason = "only the Windows tray app uses this")
+)]
 mod logging;
 #[cfg_attr(
     not(windows),

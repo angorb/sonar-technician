@@ -1,8 +1,10 @@
-//! Tray icon (FR-8.1) via `Shell_NotifyIconW`. The icon (a knob ring) is drawn
-//! at runtime, so no resource file or build script is needed: coloured when
-//! connected, grey when Sonar is unavailable.
+//! Tray icon (FR-8.1) via `Shell_NotifyIconW`. The icon (a volume dial, see
+//! `crate::icon`) is drawn at runtime, so no resource file or build script is
+//! needed: orange when connected, grey when Sonar is unavailable.
 
 use windows::Win32::Foundation::{HWND, POINT};
+
+use crate::icon;
 use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateBitmap, CreateDIBSection, DIB_RGB_COLORS,
     DeleteObject, HGDIOBJ,
@@ -17,8 +19,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 const ICON_ID: u32 = 1;
-const CONNECTED_RGB: (u8, u8, u8) = (0xFF, 0x6A, 0x13);
-const OFFLINE_RGB: (u8, u8, u8) = (0x8A, 0x8A, 0x8A);
 
 pub struct Tray {
     hwnd: HWND,
@@ -39,35 +39,10 @@ fn fill<const N: usize>(dst: &mut [u16; N], s: &str) {
     dst[i] = 0;
 }
 
-/// Coverage (0..1) of a pixel centre at distance `d` from an edge at `r`
-/// (inside = d < r), for cheap anti-aliasing.
-fn cover(d: f32, r: f32) -> f32 {
-    (r - d + 0.5).clamp(0.0, 1.0)
-}
-
-/// Draw a knob: a ring with an indicator notch at the top.
-fn make_icon(size: i32, (r, g, b): (u8, u8, u8)) -> Option<HICON> {
+/// Build an `HICON` from the dial drawn by `crate::icon`.
+fn make_icon(size: i32, rgb: (u8, u8, u8)) -> Option<HICON> {
     let n = size.max(16);
-    let c = n as f32 / 2.0;
-    let outer = c - 1.0;
-    let inner = outer * 0.58;
-    let mut px = vec![0u32; (n * n) as usize];
-    for y in 0..n {
-        for x in 0..n {
-            let (fx, fy) = (x as f32 + 0.5 - c, y as f32 + 0.5 - c);
-            let d = (fx * fx + fy * fy).sqrt();
-            let mut a = cover(d, outer) * (1.0 - cover(d, inner));
-            // Indicator: a short bar from the centre towards the top.
-            let half_w = (n as f32 * 0.07).max(1.0);
-            if fx.abs() <= half_w && fy < -inner * 0.15 && fy > -inner {
-                a = a.max(cover(fx.abs(), half_w));
-            }
-            let alpha = (a * 255.0) as u32;
-            // Premultiplied BGRA.
-            let pm = |v: u8| (u32::from(v) * alpha / 255) & 0xFF;
-            px[(y * n + x) as usize] = (alpha << 24) | (pm(r) << 16) | (pm(g) << 8) | pm(b);
-        }
-    }
+    let px = icon::dial(n, rgb);
     // SAFETY: standard 32-bpp top-down DIB; `bits` is valid for n*n u32s
     // until the bitmap is deleted, and both bitmaps are deleted after the
     // icon (which copies them) is created.
@@ -109,8 +84,8 @@ impl Tray {
         Self {
             hwnd,
             callback_msg,
-            icon_on: make_icon(size, CONNECTED_RGB),
-            icon_off: make_icon(size, OFFLINE_RGB),
+            icon_on: make_icon(size, icon::CONNECTED),
+            icon_off: make_icon(size, icon::OFFLINE),
             connected: false,
             tip: "Sonar Technician".to_owned(),
         }

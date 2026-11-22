@@ -27,6 +27,7 @@ src/
   main.rs          # arg parsing: tray app (default) | probe | set | ...
   app.rs           # Windows tray app: hidden window, message loop, worker thread, tray menu, config reload
   chord.rs         # key-chord parsing ("Ctrl+F17" -> MOD_* + VK), pure so it's tested on any OS
+  icon.rs          # tray icon (volume dial) drawn as pixels, pure and tested
   logging.rs       # stderr (CLI) or rotated file in %LOCALAPPDATA% (tray app)
   overlay_view.rs  # overlay text/layout/placement/pixel painting (pure, tested); platform/overlay.rs draws it
   config.rs        # TOML config: load/validate/defaults/hot-reload
@@ -46,7 +47,7 @@ src/
   platform/
     hotkeys.rs     # RegisterHotKey for parsed chords (parsing lives in chord.rs)
     overlay.rs     # layered, topmost, click-through, no-activate window; GDI text over overlay_view::Canvas
-    tray.rs        # Shell_NotifyIconW; icon drawn at runtime (no resources)
+    tray.rs        # Shell_NotifyIconW; HICON built from icon.rs pixels (no resources)
     autostart.rs   # HKCU\...\Run
     single_instance.rs
     endpoint_volume.rs  # optional Core Audio writer for Sonar virtual devices
