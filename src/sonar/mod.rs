@@ -312,13 +312,12 @@ pub fn round_volume(v: f64) -> SonarResult<f64> {
 /// Sonar's own virtual device for a channel (used for the Core Audio
 /// endpoint-volume path). Matched by `role`, which holds the volume token.
 /// `None` for master, which has no virtual device.
+///
+/// Always the *render* endpoint, including for mic: Sonar mirrors the render
+/// "Sonar - Microphone" endpoint into its mic fader, while the capture one is
+/// just the Windows recording level (confirmed GG 124.0.0).
 pub fn virtual_device_for(devices: &[AudioDevice], channel: Channel) -> Option<&AudioDevice> {
-    let flow = if channel == Channel::Mic {
-        DataFlow::Capture
-    } else {
-        DataFlow::Render
-    };
-    virtual_device_for_flow(devices, channel, flow)
+    virtual_device_for_flow(devices, channel, DataFlow::Render)
 }
 
 /// Like [`virtual_device_for`] with an explicit flow. Sonar exposes the
@@ -426,7 +425,8 @@ mod tests {
         assert!(name(Channel::Aux).unwrap().contains("Sonar - Aux"));
         let mic = virtual_device_for(&ds, Channel::Mic).unwrap();
         assert!(mic.name.contains("Sonar - Microphone"));
-        assert_eq!(mic.flow, DataFlow::Capture);
+        assert_eq!(mic.flow, DataFlow::Render);
+        assert!(virtual_device_for_flow(&ds, Channel::Mic, DataFlow::Capture).is_some());
         assert!(virtual_device_for(&ds, Channel::Master).is_none());
     }
 
